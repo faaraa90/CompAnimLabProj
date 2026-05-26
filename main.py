@@ -1,7 +1,3 @@
-print ("Hello world!!!")
-print ("This is a test of the emergency broadcast system.")
-
-
-
-
-
+import cv2
+import mediapipe as mp
+print ("everything works")
