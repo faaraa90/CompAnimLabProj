@@ -1,1 +1,35 @@
+# ========== Python ==========
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
 calab/
+venv/
+.env/
+
+# ========== IDE / VS Code ==========
+.vscode/
+.idea/
+
+# ========== Data ==========
+data/
+videos/
+*.csv
+*.h5
+*.npy
+*.npz
+
+# ========== Logs / outputs ==========
+logs/
+*.log
+output/
+results/
+
+# ========== Jupyter ==========
+.ipynb_checkpoints/
+
+# ========== OS ==========
+.DS_Store
+Thumbs.db
