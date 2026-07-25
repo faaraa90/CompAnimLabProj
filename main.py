@@ -1,5 +1,14 @@
 import sys
-from pose_detector import AnkleAssessment, HipAssessment, SpineAssessment, HipFlexionAssessment, FingerFloorAssessment, SpineRotationAssessment, AnkleInversionAssessment
+from pose_detector import (
+    AnkleAssessment, 
+    HipAssessment, 
+    SpineAssessment, 
+    HipFlexionAssessment, 
+    FingerFloorAssessment, 
+    SpineRotationAssessment, 
+    AnkleInversionAssessment,
+    PassiveHipFlexionAssessment
+)
 
 def main():
     while True:
@@ -10,14 +19,15 @@ def main():
         print(" 1. Ankle Range of Motion")
         print(" 2. Hip Abduction & Adduction")
         print(" 3. Spine Lateral Flexion")
-        print(" 4. Hip Flexion Sagittal")
-        print(" 5. Finger-to-Floor Test")
-        print(" 6. Spine Rotation Assessment")
-        print(" 7. Ankle Inversion Assessment")
-        print(" 8. Exit Library")
+        print(" 4. Active Hip Flexion Sagittal")
+        print(" 5. Passive Hip Flexion Sagittal (Hands Assisted - Abb. 1b)")
+        print(" 6. Finger-to-Floor Test")
+        print(" 7. Spine Rotation Assessment")
+        print(" 8. Ankle Inversion Assessment")
+        print(" 9. Exit Library")
         print("----------------------------------------------------------")
         
-        choice = input("Enter your choice (1-8): ").strip()
+        choice = input("Enter your choice (1-9): ").strip()
 
         if choice == "1":
             assessment = AnkleAssessment()
@@ -27,14 +37,12 @@ def main():
             left_results = assessment.analyze_video(video_path=left_video, side="left")
             right_results = assessment.analyze_video(video_path=right_video, side="right")
             if left_results and right_results:
-                left_results['right_rom'] = right_results['rom']
-                left_results['right_repetitions'] = right_results['repetitions']
-                assessment.print_symmetry_report(left_metrics=left_results, right_metrics=left_results)
+                assessment.print_report(left_results, right_results)
             assessment.close()
 
         elif choice == "2":
             assessment = HipAssessment()
-            left_video = "data/videos/HüftgelenkeAnfuhrenLeft01.mp4"
+            left_video = "data/videos/HüftgelenkeAnfuhrenLedft01.mp4"
             right_video = "data/videos/HüftgelenkeAnfuhrenRight01.mp4"
             
             left_results = assessment.analyze_video(video_path=left_video, side="left")
@@ -55,17 +63,15 @@ def main():
             assessment.close()
 
         elif choice == "4":
-            # ----------------- ماژول جدید خم کردن ران -----------------
             assessment = HipFlexionAssessment()
-            # نام فایل‌های ارسالی جدید خود را در این بخش جایگزین کنید
-            left_video = "data/videos/HüftgelenkeBeuggLeft01.mp4"  # ویدیویی که پای چپ بالا می‌آید
-            right_video = "data/videos/HüftgelenkeBeuggRight01.mp4" # ویدیویی که پای راست بالا می‌آید
+            left_video = "data/videos/HüftgelenkeBeuggLeft01.mp4"
+            right_video = "data/videos/HüftgelenkeBeuggRight01.mp4"
             
-            print("\n[INFO] Initializing Hip Flexion Engine...")
-            print("[STEP 1/2] Processing Left Hip Flexion...")
+            print("\n[INFO] Initializing Active Hip Flexion Engine...")
+            print("[STEP 1/2] Processing Left Active Hip Flexion...")
             left_results = assessment.analyze_video(video_path=left_video, side="left")
 
-            print("\n[STEP 2/2] Processing Right Hip Flexion...")
+            print("\n[STEP 2/2] Processing Right Active Hip Flexion...")
             right_results = assessment.analyze_video(video_path=right_video, side="right")
 
             if left_results and right_results:
@@ -73,7 +79,23 @@ def main():
             assessment.close()
 
         elif choice == "5":
-            # ----------------- ماژول جدید تست انگشت به زمین -----------------
+            # ----------------- ماژول خمش غیرفعال ران با دست -----------------
+            assessment = PassiveHipFlexionAssessment()
+            left_video = "data/videos/HüftgelenkeStreckLeft01.mp4"
+            right_video = "data/videos/HüftgelenkeStreckRight01.mp4"
+            
+            print("\n[INFO] Initializing Passive Hip Flexion Engine (Hands Assisted)...")
+            print("[STEP 1/2] Processing Left Passive Hip Flexion...")
+            left_results = assessment.analyze_video(video_path=left_video, side="left")
+
+            print("\n[STEP 2/2] Processing Right Passive Hip Flexion...")
+            right_results = assessment.analyze_video(video_path=right_video, side="right")
+
+            if left_results and right_results:
+                assessment.print_report(left_results, right_results)
+            assessment.close()
+
+        elif choice == "6":
             assessment = FingerFloorAssessment()
             video1 = "data/videos/Finger-Boden01.mp4"
             video2 = "data/videos/Finger-Boden03.mp4"
@@ -89,12 +111,10 @@ def main():
                 assessment.print_report(res1, res2)
             assessment.close()
 
-        
-        elif choice == "6":
-            # ----------------- ماژول جدید چرخش محوری ستون فقرات -----------------
+        elif choice == "7":
             assessment = SpineRotationAssessment()
-            left_video = "data/videos/SeitneigenLeft01.mp4"   # فیلم چرخش به چپ
-            right_video = "data/videos/SeitneigenRight01.mp4" # فیلم چرخش به راست
+            left_video = "data/videos/SeitneigenLeft01.mp4"
+            right_video = "data/videos/SeitneigenRight01.mp4"
             
             print("\n[INFO] Initializing Spine Axial Rotation Engine...")
             print("[STEP 1/2] Processing Left Spine Rotation...")
@@ -107,8 +127,7 @@ def main():
                 assessment.print_report(left_results, right_results)
             assessment.close()
         
-        elif choice == "7":
-            # ----------------- ماژول جدید خم کردن مچ پا به لبه بیرونی -----------------
+        elif choice == "8":
             assessment = AnkleInversionAssessment()
             left_video = "data/videos/BeinlängeAusenrandLeft01.mp4"
             right_video = "data/videos/BeinlängeAusenrandRight01.mp4"
@@ -124,12 +143,12 @@ def main():
                 assessment.print_report(left_results, right_results)
             assessment.close()
 
-        elif choice == "8":
+        elif choice == "9":
             print("\nExiting library. Thank you for using Neutral-0 Biomechanical Suite!")
             sys.exit()
             
         else:
-            print("\n[ERROR] Invalid input. Please enter a valid option (1-8).\n")
+            print("\n[ERROR] Invalid input. Please enter a valid option (1-9).\n")
 
 if __name__ == "__main__":
     main()
