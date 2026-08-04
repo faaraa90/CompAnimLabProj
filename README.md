@@ -1,4 +1,7 @@
 # CompAnimLabProj
+<p align="center">
+  <img src="assets/demo.gif" alt="Pose Estimation Demo" width="600"/>
+</p>
 ##Overview
 ...
 ##Dataset
