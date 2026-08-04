@@ -22,6 +22,39 @@ This repository implements a **real-time pose estimation and biomechanical asses
 - **Biomechanical Kinematics:** Computes real-time joint angles and angular variations during movement.
 - **Visual Feedback & Telemetry:** Overlays visual skeletal tracking and telemetry directly onto the video feed.
 
+## Pipeline Architecture
+
+```text
+[ Input Video / Webcam Feed ]
+              │
+              ▼
+    ┌──────────────────┐
+    │  OpenCV Frame    │ ───► Captures frame 
+    │   Preprocessing  │
+    └─────────┬────────┘
+              │
+              ▼
+    ┌──────────────────┐
+    │  MediaPipe Pose  │ ───► Detects 33 3D body landmark keypoints
+    │   Landmark Engine│
+    └─────────┬────────┘
+              │
+              ▼
+    ┌──────────────────┐
+    │  Biomechanical   │ ───► Calculates joint kinematics & angles
+    │   Angle Engine   │      (e.g., knee, elbow, hip vectors)
+    └─────────┬────────┘
+              │
+              ▼
+    ┌──────────────────┐
+    │ Visualizer &     │ ───► Overlays skeletal joints, angle values,
+    │   Telemetry GUI  │      and metrics on frame
+    └─────────┬────────┘
+              │
+              ▼
+[ Rendered Output Display / Video File ]
+```
+
 ## Project Structure
 ```text
 CompAnimLabProj/
