@@ -1,5 +1,5 @@
 import sys
-from pose_detector import AnkleAssessment, HipAssessment, SpineAssessment, HipFlexionAssessment, FingerFloorAssessment, SpineRotationAssessment, AnkleInversionAssessment
+from src.pose_detector import AnkleAssessment, HipAssessment, SpineAssessment, HipFlexionAssessment, FingerFloorAssessment, SpineRotationAssessment, AnkleInversionAssessment
 
 def main():
     while True:
