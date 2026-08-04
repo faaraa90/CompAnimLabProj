@@ -121,8 +121,23 @@ python main.py
 
 
 
-##Results
-...
+## Troubleshooting & Common Issues
 
-##Authors
-...
+* **MediaPipe Landmark Detection Dropouts:**
+  * Ensure adequate room lighting and that the subject's full body or required keypoints are visible within the camera frame.
+
+* **ModuleNotFound Error:**
+  * If Python cannot locate modules inside `src/`, make sure you have activated your virtual environment and run `main.py` from the root directory:
+    ```bash
+    python main.py
+    ```
+
+---
+
+## Contact & Acknowledgments
+
+* **Author:** Student at University of Bonn  
+* **Course:** Computer Animation Lab (Summer Semester 2026)  
+* **Frameworks Used:** [MediaPipe](https://google.github.io/mediapipe/), [OpenCV](https://opencv.org/), [NumPy](https://numpy.org/)  
+
+If you have any questions or suggestions regarding this project, feel free to open an issue or reach out via GitHub.
