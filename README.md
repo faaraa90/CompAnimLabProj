@@ -42,7 +42,7 @@ This repository implements a **real-time pose estimation and biomechanical asses
               ▼
     ┌──────────────────┐
     │  Biomechanical   │ ───► Calculates joint kinematics & angles
-    │   Angle Engine   │      (e.g., knee, elbow, hip vectors)
+    │   Angle Engine   │      
     └─────────┬────────┘
               │
               ▼
@@ -73,11 +73,53 @@ The video files are not included in this repository because of their size.
 you can download the videos from the following [Google Drive folder] (https://drive.google.com/drive/folders/1H4ockyZ8WZsETMHapkkToH6sEciXVscJ?usp=drive_link)
 please download the dataset and place the video files in the 'data/videos/' directory before running the code. 
 
-##Installation
-...
+## Getting Started
 
-##Usage
-...
+Follow these steps to get a local copy up and running on your machine.
+
+### Prerequisites
+
+* **Python 3.10+** installed on your system.
+* **Git** installed on your system.
+
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone [https://github.com/faaraa90/CompAnimLabProj.git](https://github.com/faaraa90/CompAnimLabProj.git)
+   cd CompAnimLabProj
+   ```
+
+2. **Create and activate a virtual environment (Recommended):**
+   * **Windows (PowerShell / Command Prompt):**
+     ```bash
+     python -m venv venv
+     .\venv\Scripts\activate
+     ```
+   * **Linux / macOS:**
+     ```bash
+     python3 -m venv venv
+     source venv/bin/activate
+     ```
+
+3. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+---
+
+### Usage
+
+To run the main pose estimation and biomechanical tracker, execute:
+
+```bash
+python main.py
+```
+
+> **Tip:** Ensure your webcam is connected or specify a sample video path inside `data/` if configured in `main.py`.
+
+
 
 ##Results
 ...
