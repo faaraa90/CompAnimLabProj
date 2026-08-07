@@ -4,6 +4,12 @@ import math
 import mediapipe as mp
 import numpy as np
 
+import cv2
+import os
+import math
+import mediapipe as mp
+import numpy as np
+
 class BiomechanicalAssessment:
     """
     Base Class (Parent) that handles core computer vision pipelines.
@@ -27,24 +33,51 @@ class BiomechanicalAssessment:
             angle_deg = 360 - angle_deg
         return angle_deg
 
+    def print_symmetry_report(self, left_metrics, right_metrics, metric_key, title="BILATERAL COMPARISON REPORT", unit="°"):
+        """
+        Generic helper method in base class to perform side-by-side comparison 
+        and calculate symmetry index for any biomechanical assessment.
+        """
+        left_val = left_metrics.get(metric_key, 0.0)
+        right_val = right_metrics.get(metric_key, 0.0)
+        
+        diff = abs(left_val - right_val)
+        max_val = max(left_val, right_val)
+        symmetry_index = (1.0 - (diff / max_val)) * 100.0 if max_val > 0 else 100.0
+
+        print("\n" + "="*60)
+        print(f"         {title.upper()}         ")
+        print("="*60)
+        print(f"LEFT SIDE:  {left_val:.1f}{unit} | Completed Reps: {left_metrics.get('repetitions', 0)}")
+        print(f"RIGHT SIDE: {right_val:.1f}{unit} | Completed Reps: {right_metrics.get('repetitions', 0)}")
+        print("-"*60)
+        print(f"ABSOLUTE DIFFERENCE: {diff:.1f}{unit}")
+        print(f"BILATERAL SYMMETRY INDEX: {symmetry_index:.1f}%")
+        print("-"*60)
+        print("CLINICAL EVALUATION:")
+        if symmetry_index >= 85.0:
+            print(" [PASS] Excellent symmetry between left and right sides.")
+        else:
+            print(" [FLAG] WARNING: Significant asymmetry detected between limbs/sides!")
+        print("="*60 + "\n")
+
     def close(self):
         self.pose.close()
-
 
 class AnkleAssessment(BiomechanicalAssessment):
     """
     Child Class specialized for Upper Ankle Joint Assessment (Abb. 6).
+    Supports dual-direction tracking for both Dorsiflexion (Up) and Plantarflexion (Down).
     """
     def __init__(self):
         super().__init__(model_complexity=1, detection_confidence=0.6, tracking_confidence=0.6)
         self.NEUTRAL_ANGLE = 90.0
-        self.CLINICAL_NORM_PLANTAR = 40.0  
-        self.CLINICAL_NORM_DORSI = 20.0    
+        self.CLINICAL_NORM_PLANTAR = 40.0  # Normal extension down
+        self.CLINICAL_NORM_DORSI = 20.0    # Normal flexion up
 
     def draw_dashboard(self, frame, side, live_angle, max_rom, reps):
         """Draws a translucent HUD box in the Top Right corner with relative positioning."""
         h, w, _ = frame.shape
-        # مقیاس‌دهی ابعاد باکس بر اساس رزولوشن اصلی ویدیو
         box_width = int(w * 0.25) if w > 1000 else 340
         box_height = int(h * 0.15) if h > 1000 else 160
         padding = int(w * 0.02)
@@ -78,12 +111,11 @@ class AnkleAssessment(BiomechanicalAssessment):
         captured_angles = []
         
         rep_count = 0
-        direction = 0  
+        direction = 0  # 0 = Downwards (Plantar), 1 = Upwards (Dorsi)
         prev_angle = None
 
         print(f"[INFO] Running Ankle Pipeline for {side.upper()} side...")
 
-        # ایجاد نام پنجره یکتا برای مدیریت اوپن‌سی‌وی
         window_name = f"Assessment Protocol - {side.upper()}"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
 
@@ -111,35 +143,58 @@ class AnkleAssessment(BiomechanicalAssessment):
                 captured_angles.append(live_angle)
                 current_max_rom = max(captured_angles) - min(captured_angles)
 
-                # --- Wave-Based Adaptive Repetition Counter ---
+                # --- Dynamic Direction Detection & Adaptive Repetition Counter ---
+                current_motion = "IDLE"
                 if prev_angle is not None:
+                    angle_diff = live_angle - prev_angle
+                    
+                    if angle_diff > 0.3:
+                        current_motion = "DOWN"  # Plantarflexion (angle increasing)
+                    elif angle_diff < -0.3:
+                        current_motion = "UP"    # Dorsiflexion (angle decreasing)
+
+                    # State machine for repetition counting
                     if live_angle > prev_angle + 0.3 and direction == 0:
-                        if live_angle > 120:
+                        if live_angle > 115:
                             direction = 1
                     elif live_angle < prev_angle - 0.3 and direction == 1:
-                        if live_angle < 118:
+                        if live_angle < 100:
                             rep_count += 1
                             direction = 0
+                            
                 prev_angle = live_angle
 
-                # --- Patient Coaching Feedbacks & Easter Egg ---
+                # --- Biomechanical Deflections ---
+                measured_plantar = max(0.0, live_angle - self.NEUTRAL_ANGLE)
+                measured_dorsi = max(0.0, self.NEUTRAL_ANGLE - live_angle)
+
+                # --- Dynamic Patient Coaching Feedbacks ---
                 feedback_msg = "Keep moving your foot up and down."
                 feedback_color = (255, 255, 255)
-                measured_plantar = live_angle - self.NEUTRAL_ANGLE
 
-                if 5.0 < measured_plantar < self.CLINICAL_NORM_PLANTAR:
-                    feedback_msg = "Good start! Try to push a little further down."
-                    feedback_color = (0, 165, 255)
-                elif measured_plantar >= self.CLINICAL_NORM_PLANTAR:
-                    feedback_msg = "Excellent range achieved! Perfect extension!"
-                    feedback_color = (0, 255, 0)
+                if current_motion == "DOWN":
+                    # Moving foot downwards (Plantarflexion)
+                    if 5.0 < measured_plantar < self.CLINICAL_NORM_PLANTAR:
+                        feedback_msg = "Pushing DOWN! Push a little further."
+                        feedback_color = (0, 165, 255)
+                    elif measured_plantar >= self.CLINICAL_NORM_PLANTAR:
+                        feedback_msg = "Excellent Plantarflexion range reached! 🌟"
+                        feedback_color = (0, 255, 0)
 
-                if rep_count == 3:
+                elif current_motion == "UP":
+                    # Pulling foot upwards towards the shin (Dorsiflexion)
+                    if 5.0 < measured_dorsi < self.CLINICAL_NORM_DORSI:
+                        feedback_msg = "Pulling UP! Pull closer towards your shin."
+                        feedback_color = (0, 165, 255)
+                    elif measured_dorsi >= self.CLINICAL_NORM_DORSI:
+                        feedback_msg = "Excellent Dorsiflexion range achieved! 🌟"
+                        feedback_color = (0, 255, 0)
+
+                if rep_count >= 3:
                     feedback_msg = "🌟 STREAK ACTIVE! Patient level: PRO! 🌟"
                     feedback_color = (255, 51, 153)
 
                 h, w, _ = frame.shape
-                # تنظیم مقیاس ضخامت متن پایین صفحه متناسب با کیفیت تصویر گوشی
                 font_scale = 0.6 if w < 1000 else (w / 1920) * 0.85
                 thickness = 2 if w < 1000 else int(w * 0.0015) + 1
 
@@ -158,7 +213,7 @@ class AnkleAssessment(BiomechanicalAssessment):
                 break
 
         cap.release()
-        cv2.destroyWindow(window_name) # بستن امن همان پنجره خاص بعد از پایان ویدیو
+        cv2.destroyWindow(window_name)
 
         if not captured_angles:
             return None
@@ -175,22 +230,13 @@ class AnkleAssessment(BiomechanicalAssessment):
             "repetitions": rep_count
         }
 
-    def print_symmetry_report(self, left_metrics, right_metrics):
-        print("\n" + "="*60)
-        print("         BILATERAL SYMMETRY & CLINICAL REPORT          ")
-        print("="*60)
-        print(f"LEFT SIDE ROM:  {left_metrics['rom']:.1f}° | Completed Reps: {left_metrics['repetitions']}")
-        print(f"RIGHT SIDE ROM: {right_metrics['right_rom']:.1f}° | Completed Reps: {right_metrics['right_repetitions']}")
-        print("-"*60)
-        symmetry_index = (1.0 - abs(left_metrics['rom'] - right_metrics['right_rom']) / max(left_metrics['rom'], right_metrics['right_rom'])) * 100
-        print(f"Bilateral Joint Symmetry Index: {symmetry_index:.1f}%")
-        print("-"*60)
-        print("CLINICAL FEEDBACK:")
-        if symmetry_index >= 85.0:
-            print(" [PASS] Good symmetry between both sides. Balanced motor control.")
-        else:
-            print(" [FLAG] WARNING: Asymmetry detected! Significant mobility difference between limbs.")
-        print("="*60 + "\n")
+    def print_report(self, left_res, right_res):
+        self.print_symmetry_report(
+            left_metrics=left_res, 
+            right_metrics=right_res, 
+            metric_key="rom", 
+            title="ANKLE RANGE OF MOTION SYMMETRY REPORT"
+        )
 
 
 class HipAssessment(BiomechanicalAssessment):
@@ -330,12 +376,12 @@ class HipAssessment(BiomechanicalAssessment):
         }
 
     def print_report(self, left_res, right_res):
-        print("\n" + "="*60)
-        print("          HIP ABDUCTION KINEMATIC REPORT               ")
-        print("="*60)
-        print(f"Left Hip Peak Abduction:  {left_res['max_abduction']:.1f}° | Reps: {left_res['repetitions']} | [{left_res['clinical_status']}]")
-        print(f"Right Hip Peak Abduction: {right_res['max_abduction']:.1f}° | Reps: {right_res['repetitions']} | [{right_res['clinical_status']}]")
-        print("="*60 + "\n")
+        self.print_symmetry_report(
+            left_metrics=left_res, 
+            right_metrics=right_res, 
+            metric_key="max_abduction", 
+            title="HIP ABDUCTION SYMMETRY REPORT"
+        )
 class SpineAssessment(BiomechanicalAssessment):
     """
     Child Class specialized for Spine Lateral Flexion Assessment.
@@ -477,12 +523,12 @@ class SpineAssessment(BiomechanicalAssessment):
         }
 
     def print_report(self, left_res, right_res):
-        print("\n" + "="*60)
-        print("          SPINE LATERAL FLEXION REPORT                 ")
-        print("="*60)
-        print(f"Left Lateral Flexion:  {left_res['max_flexion']:.1f}° | Reps: {left_res['repetitions']} | [{left_res['clinical_status']}]")
-        print(f"Right Lateral Flexion: {right_res['max_flexion']:.1f}° | Reps: {right_res['repetitions']} | [{right_res['clinical_status']}]")
-        print("="*60 + "\n")
+        self.print_symmetry_report(
+            left_metrics=left_res, 
+            right_metrics=right_res, 
+            metric_key="max_flexion", 
+            title="SPINE LATERAL FLEXION SYMMETRY REPORT"
+        )
 class HipFlexionAssessment(BiomechanicalAssessment):
     """
     Child Class specialized for Hip Flexion Assessment (Sagittal Plane).
@@ -625,12 +671,12 @@ class HipFlexionAssessment(BiomechanicalAssessment):
         }
 
     def print_report(self, left_res, right_res):
-        print("\n" + "="*60)
-        print("            HIP FLEXION CLINICAL REPORT                ")
-        print("="*60)
-        print(f"Left Hip Flexion:  {left_res['max_flexion']:.1f}° / {self.CLINICAL_NORM_FLEXION}° | Reps: {left_res['repetitions']} | [{left_res['clinical_status']}]")
-        print(f"Right Hip Flexion: {right_res['max_flexion']:.1f}° / {self.CLINICAL_NORM_FLEXION}° | Reps: {right_res['repetitions']} | [{right_res['clinical_status']}]")
-        print("="*60 + "\n")
+        self.print_symmetry_report(
+            left_metrics=left_res, 
+            right_metrics=right_res, 
+            metric_key="max_flexion", 
+            title="ACTIVE HIP FLEXION SYMMETRY REPORT"
+        )    
 class FingerFloorAssessment(BiomechanicalAssessment):
     """
     Child Class specialized for Finger-to-Floor (FFD) Assessment (Sagittal Plane).
@@ -932,12 +978,12 @@ class SpineRotationAssessment(BiomechanicalAssessment):
         }
 
     def print_report(self, left_res, right_res):
-        print("\n" + "="*60)
-        print("          SPINE AXIAL ROTATION KINEMATIC REPORT        ")
-        print("="*60)
-        print(f"Left Spine Rotation:  {left_res['max_rotation']:.1f}° / {self.CLINICAL_NORM_ROTATION}° | Reps: {left_res['repetitions']} | [{left_res['clinical_status']}]")
-        print(f"Right Spine Rotation: {right_res['max_rotation']:.1f}° / {self.CLINICAL_NORM_ROTATION}° | Reps: {right_res['repetitions']} | [{right_res['clinical_status']}]")
-        print("="*60 + "\n")
+        self.print_symmetry_report(
+            left_metrics=left_res, 
+            right_metrics=right_res, 
+            metric_key="max_rotation", 
+            title="SPINE ROTATION SYMMETRY REPORT"
+        )
 
 class AnkleInversionAssessment(BiomechanicalAssessment):
     """
@@ -1083,9 +1129,542 @@ class AnkleInversionAssessment(BiomechanicalAssessment):
         }
 
     def print_report(self, left_res, right_res):
+        self.print_symmetry_report(
+            left_metrics=left_res, 
+            right_metrics=right_res, 
+            metric_key="max_inversion", 
+            title="ANKLE INVERSION SYMMETRY REPORT"
+        )
+    
+class PassiveHipFlexionAssessment(BiomechanicalAssessment):
+    """
+    Child Class specialized for Assisted/Passive Hip Flexion Assessment (Abb. 1b).
+    Measures maximum hip flexion ROM when hands assist the movement up to ~130 Deg.
+    Includes a moving average filter to handle potential landmark jitter from hand occlusion.
+    """
+    def __init__(self):
+        super().__init__(model_complexity=1, detection_confidence=0.6, tracking_confidence=0.6)
+        self.CLINICAL_NORM_FLEXION = 130.0  # نورم بالینی برای خمش با کمک دست (Abb. 1b)
+        self.angle_history = []
+
+    def draw_dashboard(self, frame, side, live_angle, max_rom, reps):
+        h, w, _ = frame.shape
+        box_width = int(w * 0.28) if w > 1000 else 360
+        box_height = int(h * 0.16) if h > 1000 else 160
+        padding = int(w * 0.02)
+        
+        x1, y1 = w - box_width - padding, padding
+        x2, y2 = w - padding, padding + box_height
+        
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (30, 30, 30), -1)
+        cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 165, 0), int(w * 0.002) + 1)
+        
+        font_scale = 0.55 if w < 1000 else (w / 1920) * 0.75
+        thickness = 2 if w < 1000 else int(w * 0.0015) + 1
+
+        cv2.putText(frame, f"PASSIVE HIP FLEX: {side.upper()}", (x1 + 15, y1 + int(box_height*0.2)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 165, 0), thickness, cv2.LINE_AA)
+        cv2.putText(frame, f"Live Angle:   {int(live_angle)} Deg", (x1 + 15, y1 + int(box_height*0.45)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+        cv2.putText(frame, f"Max Flexion:  {int(max_rom)} Deg", (x1 + 15, y1 + int(box_height*0.7)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 255), thickness, cv2.LINE_AA)
+        cv2.putText(frame, f"Completed Reps: {reps}", (x1 + 15, y1 + int(box_height*0.9)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), thickness, cv2.LINE_AA)
+
+    def analyze_video(self, video_path, side="left"):
+        if not os.path.exists(video_path):
+            print(f"[ERROR] Video path invalid: {video_path}")
+            return None
+
+        cap = cv2.VideoCapture(video_path)
+        captured_angles = []
+        rep_count = 0
+        direction = 0  # 0 = Pulling leg with hands, 1 = Releasing leg
+        prev_angle = None
+        self.angle_history = []
+
+        print(f"[INFO] Running Passive Hip Flexion Pipeline (Hands Assisted) for {side.upper()} side...")
+
+        window_name = f"Passive Hip Flexion (Abb. 1b) - {side.upper()}"
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = self.pose.process(rgb_frame)
+
+            if results.pose_landmarks:
+                landmarks = results.pose_landmarks.landmark
+                
+                if side.lower() == "left":
+                    shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER]
+                    hip = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP]
+                    knee = landmarks[self.mp_pose.PoseLandmark.LEFT_KNEE]
+                else:
+                    shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER]
+                    hip = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP]
+                    knee = landmarks[self.mp_pose.PoseLandmark.RIGHT_KNEE]
+
+                h, w, _ = frame.shape
+                s_pt = (int(shoulder.x * w), int(shoulder.y * h))
+                h_pt = (int(hip.x * w), int(hip.y * h))
+                k_pt = (int(knee.x * w), int(knee.y * h))
+
+                # محاسبه زاویه لولا
+                angle_s_h_k = self.calculate_2d_angle(shoulder, hip, knee)
+                raw_live_angle = max(0.0, 180.0 - angle_s_h_k)
+
+                # اعمال فیلتر میانگین متحرک برای حذف نویز قرارگیری دست‌ها روی زانو
+                self.angle_history.append(raw_live_angle)
+                if len(self.angle_history) > 5:
+                    self.angle_history.pop(0)
+                live_angle = sum(self.angle_history) / len(self.angle_history)
+                captured_angles.append(live_angle)
+
+                # منطق شمارش تکرار
+                if prev_angle is not None:
+                    if live_angle > prev_angle + 0.3 and direction == 0:
+                        if live_angle > 35:
+                            direction = 1
+                    elif live_angle < prev_angle - 0.3 and direction == 1:
+                        if live_angle < 15:
+                            rep_count += 1
+                            direction = 0
+                prev_angle = live_angle
+
+                # پیام‌های راهنما
+                feedback_msg = "Pull your knee toward your chest using your hands."
+                feedback_color = (255, 255, 255)
+
+                if 50.0 < live_angle < self.CLINICAL_NORM_FLEXION:
+                    feedback_msg = "Good pull! Keep pulling smoothly toward maximum range."
+                    feedback_color = (0, 165, 255)
+                elif live_angle >= self.CLINICAL_NORM_FLEXION:
+                    feedback_msg = "Maximum Passive Range Achieved (~130 Deg)! Excellent! 🌟"
+                    feedback_color = (0, 255, 0)
+
+                font_scale = 0.6 if w < 1000 else (w / 1920) * 0.85
+                thickness = 2 if w < 1000 else int(w * 0.0015) + 1
+
+                cv2.rectangle(frame, (20, h - int(h*0.08)), (w - 20, h - int(h*0.02)), (0, 0, 0), -1)
+                cv2.putText(frame, feedback_msg, (35, h - int(h*0.04)),
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, feedback_color, thickness, cv2.LINE_AA)
+
+                # رسم زنجیره حرکتی
+                cv2.line(frame, s_pt, h_pt, (0, 255, 0), int(w * 0.003) + 1)
+                cv2.line(frame, h_pt, k_pt, (255, 165, 0), int(w * 0.003) + 1)
+                for pt in [s_pt, h_pt, k_pt]:
+                    cv2.circle(frame, pt, int(w*0.005)+1, (0, 0, 255), -1)
+
+                self.mp_draw.draw_landmarks(frame, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+                self.draw_dashboard(frame, side, live_angle, max(captured_angles), rep_count)
+
+            cv2.imshow(window_name, frame)
+            if cv2.waitKey(25) & 0xFF == ord('q'):
+                break
+
+        cap.release()
+        cv2.destroyWindow(window_name)
+
+        if not captured_angles:
+            return None
+
+        max_flexion = max(captured_angles)
+        return {
+            "max_flexion": max_flexion,
+            "repetitions": rep_count,
+            "clinical_status": "PASS" if max_flexion >= self.CLINICAL_NORM_FLEXION else "FLAG"
+        }
+
+    def print_report(self, left_res, right_res):
+        self.print_symmetry_report(
+            left_metrics=left_res, 
+            right_metrics=right_res, 
+            metric_key="max_flexion", 
+            title="PASSIVE HIP FLEXION SYMMETRY REPORT"
+        )
+
+class ShoulderAbductionAssessment(BiomechanicalAssessment):
+    """
+    Child Class specialized for Shoulder Abduction Assessment & Painful Arc Detection (Abb. 1 - Frontal View).
+    Measures the hinge angle between Hip, Shoulder, and Elbow.
+    Highlights the clinical 'Painful Arc' zone (60° to 120°) and checks bilateral symmetry.
+    """
+    def __init__(self):
+        super().__init__(model_complexity=1, detection_confidence=0.6, tracking_confidence=0.6)
+        self.NEUTRAL_ANGLE = 180.0
+        self.CLINICAL_NORM_ABDUCTION = 160.0  # Normal Range: 150° - 170°
+
+    def draw_dashboard(self, frame, side, live_abduction, max_rom, reps, in_painful_arc):
+        h, w, _ = frame.shape
+        box_width = int(w * 0.30) if w > 1000 else 380
+        box_height = int(h * 0.18) if h > 1000 else 180
+        padding = int(w * 0.02)
+        
+        x1, y1 = w - box_width - padding, padding
+        x2, y2 = w - padding, padding + box_height
+        
+        # تغییر رنگ کادر داشبورد در صورت ورود به بازه قوس دردناک (۶۰ تا ۱۲۰ درجه)
+        box_border_color = (0, 0, 255) if in_painful_arc else (0, 165, 255)
+        
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (30, 30, 30), -1)
+        cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), box_border_color, int(w * 0.002) + 1)
+        
+        font_scale = 0.55 if w < 1000 else (w / 1920) * 0.75
+        thickness = 2 if w < 1000 else int(w * 0.0015) + 1
+
+        cv2.putText(frame, f"SHOULDER COACH: {side.upper()}", (x1 + 15, y1 + int(box_height*0.2)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 165, 255), thickness, cv2.LINE_AA)
+        cv2.putText(frame, f"Abduction Angle: {int(live_abduction)} Deg", (x1 + 15, y1 + int(box_height*0.42)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+        cv2.putText(frame, f"Peak Abduction:  {int(max_rom)} Deg", (x1 + 15, y1 + int(box_height*0.64)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 255), thickness, cv2.LINE_AA)
+        
+        arc_status_str = "WARNING: PAINFUL ARC (60°-120°)" if in_painful_arc else "CLEAR (OUTSIDE ARC)"
+        arc_color = (0, 0, 255) if in_painful_arc else (0, 255, 0)
+        cv2.putText(frame, arc_status_str, (x1 + 15, y1 + int(box_height*0.85)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale * 0.82, arc_color, thickness, cv2.LINE_AA)
+
+    def analyze_video(self, video_path, side="right"):
+        if not os.path.exists(video_path):
+            print(f"[ERROR] Video path invalid: {video_path}")
+            return None
+
+        cap = cv2.VideoCapture(video_path)
+        captured_angles = []
+        painful_arc_detected = False
+        
+        rep_count = 0
+        direction = 0  # 0 = Abducting (Lifting), 1 = Adducting (Lowering)
+        prev_angle = None
+
+        print(f"[INFO] Running Shoulder Abduction Pipeline for {side.upper()} side...")
+
+        window_name = f"Shoulder Assessment Protocol - {side.upper()}"
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = self.pose.process(rgb_frame)
+
+            if results.pose_landmarks:
+                landmarks = results.pose_landmarks.landmark
+                
+                if side.lower() == "left":
+                    hip = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP]
+                    shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER]
+                    elbow = landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW]
+                else:
+                    hip = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP]
+                    shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER]
+                    elbow = landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW]
+
+                # محاسبه زاویه لولایی بین Hip -> Shoulder -> Elbow
+                raw_joint_angle = self.calculate_2d_angle(hip, shoulder, elbow)
+                
+                # زاویه دور شدن دست از بدن (۰ درجه = چسبیده به بدن)
+                live_abduction = max(0.0, 180.0 - raw_joint_angle)
+                captured_angles.append(live_abduction)
+
+                # بررسی قرارگیری در محدوده Painful Arc (۶۰ الی ۱۲۰ درجه)
+                in_painful_arc = 60.0 <= live_abduction <= 120.0
+                if in_painful_arc:
+                    painful_arc_detected = True
+
+                # --- شمارش تکرارهای بر پایه رفتار موجی حرکت ---
+                if prev_angle is not None:
+                    if live_abduction > prev_angle + 0.3 and direction == 0:
+                        if live_abduction > 90:
+                            direction = 1
+                    elif live_abduction < prev_angle - 0.3 and direction == 1:
+                        if live_abduction < 30:
+                            rep_count += 1
+                            direction = 0
+                prev_angle = live_abduction
+
+                # --- بازخورد تصویری پایین صفحه ---
+                if in_painful_arc:
+                    feedback_msg = "⚠️ PAINFUL ARC ZONE (60°-120°): Monitor for impingement/pain!"
+                    feedback_color = (0, 0, 255)
+                elif live_abduction >= self.CLINICAL_NORM_ABDUCTION:
+                    feedback_msg = "🌟 FULL SHOULDER ABDUCTION ACHIEVED! Excellent ROM!"
+                    feedback_color = (0, 255, 0)
+                else:
+                    feedback_msg = "Raise your arm sideways slowly towards 180°."
+                    feedback_color = (255, 255, 255)
+
+                h, w, _ = frame.shape
+                font_scale = 0.6 if w < 1000 else (w / 1920) * 0.85
+                thickness = 2 if w < 1000 else int(w * 0.0015) + 1
+
+                cv2.rectangle(frame, (20, h - int(h*0.08)), (w - 20, h - int(h*0.02)), (0, 0, 0), -1)
+                cv2.putText(frame, feedback_msg, (35, h - int(h*0.04)),
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, feedback_color, thickness, cv2.LINE_AA)
+
+                # رسم زنجیره اسکلتی شانه
+                h_pt = (int(hip.x * w), int(hip.y * h))
+                s_pt = (int(shoulder.x * w), int(shoulder.y * h))
+                e_pt = (int(elbow.x * w), int(elbow.y * h))
+
+                line_color = (0, 0, 255) if in_painful_arc else (0, 255, 0)
+                cv2.line(frame, h_pt, s_pt, (255, 255, 255), int(w * 0.003) + 1)
+                cv2.line(frame, s_pt, e_pt, line_color, int(w * 0.003) + 1)
+                
+                for pt in [h_pt, s_pt, e_pt]:
+                    cv2.circle(frame, pt, int(w*0.005)+1, (0, 165, 255), -1)
+
+                self.mp_draw.draw_landmarks(frame, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+                self.draw_dashboard(frame, side, live_abduction, max(captured_angles), rep_count, in_painful_arc)
+
+            cv2.imshow(window_name, frame)
+            if cv2.waitKey(25) & 0xFF == ord('q'):
+                break
+
+        cap.release()
+        cv2.destroyWindow(window_name)
+
+        if not captured_angles:
+            return None
+
+        max_abduction = max(captured_angles)
+        return {
+            "max_abduction": max_abduction,
+            "repetitions": rep_count,
+            "painful_arc_flag": painful_arc_detected,
+            "clinical_status": "PASS" if max_abduction >= self.CLINICAL_NORM_ABDUCTION else "FLAG"
+        }
+
+    def print_report(self, left_res, right_res):
+        """Calculates Bilateral Symmetry Index and outputs standard clinical report."""
         print("\n" + "="*60)
-        print("          ANKLE INVERSION KINEMATIC REPORT            ")
+        print("    SHOULDER ABDUCTION BILATERAL & PAINFUL ARC REPORT    ")
         print("="*60)
-        print(f"Left Ankle Inversion:  {left_res['max_inversion']:.1f}° / {self.CLINICAL_NORM_INVERSION}° | Reps: {left_res['repetitions']} | [{left_res['clinical_status']}]")
-        print(f"Right Ankle Inversion: {right_res['max_inversion']:.1f}° / {self.CLINICAL_NORM_INVERSION}° | Reps: {right_res['repetitions']} | [{right_res['clinical_status']}]")
+        
+        left_max = left_res['max_abduction']
+        right_max = right_res['max_abduction']
+        
+        print(f"LEFT SHOULDER  - Peak ROM: {left_max:.1f}° / {self.CLINICAL_NORM_ABDUCTION}° | Reps: {left_res['repetitions']} | Arc Alert: {'YES' if left_res['painful_arc_flag'] else 'NO'}")
+        print(f"RIGHT SHOULDER - Peak ROM: {right_max:.1f}° / {self.CLINICAL_NORM_ABDUCTION}° | Reps: {right_res['repetitions']} | Arc Alert: {'YES' if right_res['painful_arc_flag'] else 'NO'}")
+        print("-"*60)
+        
+        # محاسبه شاخص تقارن دامنه حرکتی شانه راست و چپ (Bilateral Symmetry Index)
+        max_possible = max(left_max, right_max)
+        symmetry_index = (1.0 - abs(left_max - right_max) / max_possible) * 100 if max_possible > 0 else 0.0
+        
+        print(f"Bilateral Shoulder Symmetry Index: {symmetry_index:.1f}%")
+        print("-"*60)
+        print("CLINICAL EVALUATION & FEEDBACK:")
+        
+        if symmetry_index >= 85.0:
+            print(" [PASS] Good symmetry between shoulders.")
+        else:
+            print(" [FLAG] WARNING: Significant motor asymmetry between shoulders!")
+            
+        if left_res['painful_arc_flag'] or right_res['painful_arc_flag']:
+            print(" [FLAG] CLINICAL WARNING: Movement entered the Painful Arc Zone (60°-120°). Impingement syndrome suspected.")
+            
         print("="*60 + "\n")
+
+class ShoulderSagittalAssessment(BiomechanicalAssessment):
+    """
+    Child Class specialized for Shoulder Flexion/Extension Assessment (Sagittal View).
+    Processes movements from videos like 'rückwVorwRight.mp4' and 'rückwVorwLeft.mp4'.
+    Measures Shoulder Flexion (Forward / Vorwärts) and Shoulder Extension (Backward / Rückwärts).
+    """
+    def __init__(self):
+        super().__init__(model_complexity=1, detection_confidence=0.6, tracking_confidence=0.6)
+        self.CLINICAL_NORM_FLEXION = 160.0   # Normal Flexion Range: 160° - 180°
+        self.CLINICAL_NORM_EXTENSION = 50.0  # Normal Extension Range: 40° - 60°
+
+    def draw_dashboard(self, frame, side, live_angle, max_flexion, max_extension, reps):
+        h, w, _ = frame.shape
+        box_width = int(w * 0.32) if w > 1000 else 390
+        box_height = int(h * 0.20) if h > 1000 else 200
+        padding = int(w * 0.02)
+        
+        x1, y1 = w - box_width - padding, padding
+        x2, y2 = w - padding, padding + box_height
+        
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (x1, y1), (x2, y2), (30, 30, 30), -1)
+        cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 165, 255), int(w * 0.002) + 1)
+        
+        font_scale = 0.55 if w < 1000 else (w / 1920) * 0.75
+        thickness = 2 if w < 1000 else int(w * 0.0015) + 1
+
+        cv2.putText(frame, f"SHOULDER SAGITTAL: {side.upper()}", (x1 + 15, y1 + int(box_height*0.2)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 165, 255), thickness, cv2.LINE_AA)
+        cv2.putText(frame, f"Live Angle:   {int(live_angle)} Deg", (x1 + 15, y1 + int(box_height*0.4)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+        cv2.putText(frame, f"Peak Flexion:  {int(max_flexion)} Deg", (x1 + 15, y1 + int(box_height*0.6)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), thickness, cv2.LINE_AA)
+        cv2.putText(frame, f"Peak Extension:{int(max_extension)} Deg", (x1 + 15, y1 + int(box_height*0.8)),
+                    cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 0), thickness, cv2.LINE_AA)
+
+    def analyze_video(self, video_path, side="right"):
+        if not os.path.exists(video_path):
+            print(f"[ERROR] Video path invalid: {video_path}")
+            return None
+
+        cap = cv2.VideoCapture(video_path)
+        flexion_angles = []
+        extension_angles = []
+        
+        rep_count = 0
+        direction = 0
+        prev_angle = None
+
+        print(f"[INFO] Running Sagittal Shoulder Pipeline for {side.upper()} side...")
+
+        window_name = f"Shoulder Sagittal Protocol (Flex/Ext) - {side.upper()}"
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = self.pose.process(rgb_frame)
+
+            if results.pose_landmarks:
+                landmarks = results.pose_landmarks.landmark
+                
+                if side.lower() == "left":
+                    hip = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP]
+                    shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER]
+                    elbow = landmarks[self.mp_pose.PoseLandmark.LEFT_ELBOW]
+                    wrist = landmarks[self.mp_pose.PoseLandmark.LEFT_WRIST]
+                else:
+                    hip = landmarks[self.mp_pose.PoseLandmark.RIGHT_HIP]
+                    shoulder = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER]
+                    elbow = landmarks[self.mp_pose.PoseLandmark.RIGHT_ELBOW]
+                    wrist = landmarks[self.mp_pose.PoseLandmark.RIGHT_WRIST]
+
+                # محاسبه زاویه مفصل شانه در صفحه سژیتال (Hip -> Shoulder -> Wrist)
+                raw_angle = self.calculate_2d_angle(hip, shoulder, wrist)
+                
+                # تشخیص جهت حرکت (جلو یا عقب بودن دست نسبت به بدن)
+                # اگر مچ جلوی شانه باشد = Flexion / اگر پشت شانه باشد = Extension
+                is_forward = wrist.x < shoulder.x if side.lower() == "right" else wrist.x > shoulder.x
+                
+                dev_angle = max(0.0, 180.0 - raw_angle)
+                
+                if is_forward:
+                    flex_val = dev_angle
+                    ext_val = 0.0
+                    flexion_angles.append(flex_val)
+                else:
+                    flex_val = 0.0
+                    ext_val = dev_angle
+                    extension_angles.append(ext_val)
+
+                live_display_angle = flex_val if is_forward else -ext_val
+
+                # --- شمارش تکرارها ---
+                if prev_angle is not None:
+                    if dev_angle > prev_angle + 0.3 and direction == 0:
+                        if dev_angle > 60:
+                            direction = 1
+                    elif dev_angle < prev_angle - 0.3 and direction == 1:
+                        if dev_angle < 20:
+                            rep_count += 1
+                            direction = 0
+                prev_angle = dev_angle
+
+                # --- بازخورد تصویری ---
+                curr_max_flex = max(flexion_angles) if flexion_angles else 0.0
+                curr_max_ext = max(extension_angles) if extension_angles else 0.0
+
+                if is_forward:
+                    msg = f"Flexion Forward (Vorwärts): {int(flex_val)}°"
+                    msg_color = (0, 255, 0)
+                else:
+                    msg = f"Extension Backward (Rückwärts): {int(ext_val)}°"
+                    msg_color = (255, 255, 0)
+
+                h, w, _ = frame.shape
+                font_scale = 0.6 if w < 1000 else (w / 1920) * 0.85
+                thickness = 2 if w < 1000 else int(w * 0.0015) + 1
+
+                cv2.rectangle(frame, (20, h - int(h*0.08)), (w - 20, h - int(h*0.02)), (0, 0, 0), -1)
+                cv2.putText(frame, msg, (35, h - int(h*0.04)),
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, msg_color, thickness, cv2.LINE_AA)
+
+                # رسم اتصالات اسکلتی
+                h_pt = (int(hip.x * w), int(hip.y * h))
+                s_pt = (int(shoulder.x * w), int(shoulder.y * h))
+                e_pt = (int(elbow.x * w), int(elbow.y * h))
+                w_pt = (int(wrist.x * w), int(wrist.y * h))
+
+                cv2.line(frame, h_pt, s_pt, (255, 255, 255), int(w * 0.003) + 1)
+                cv2.line(frame, s_pt, e_pt, msg_color, int(w * 0.003) + 1)
+                cv2.line(frame, e_pt, w_pt, msg_color, int(w * 0.003) + 1)
+                
+                for pt in [h_pt, s_pt, e_pt, w_pt]:
+                    cv2.circle(frame, pt, int(w*0.005)+1, (0, 165, 255), -1)
+
+                self.mp_draw.draw_landmarks(frame, results.pose_landmarks, self.mp_pose.POSE_CONNECTIONS)
+                self.draw_dashboard(frame, side, live_display_angle, curr_max_flex, curr_max_ext, rep_count)
+
+            cv2.imshow(window_name, frame)
+            if cv2.waitKey(25) & 0xFF == ord('q'):
+                break
+
+        cap.release()
+        cv2.destroyWindow(window_name)
+
+        max_flex = max(flexion_angles) if flexion_angles else 0.0
+        max_ext = max(extension_angles) if extension_angles else 0.0
+
+        return {
+            "max_flexion": max_flex,
+            "max_extension": max_ext,
+            "repetitions": rep_count,
+            "flexion_status": "PASS" if max_flex >= self.CLINICAL_NORM_FLEXION else "FLAG",
+            "extension_status": "PASS" if max_ext >= self.CLINICAL_NORM_EXTENSION else "FLAG"
+        }
+
+    def print_report(self, left_res, right_res):
+        """Calculates Bilateral Symmetry Index for Sagittal Shoulder ROM."""
+        print("\n" + "="*65)
+        print("    SHOULDER SAGITTAL (FLEXION / EXTENSION) BILATERAL REPORT    ")
+        print("="*65)
+        
+        l_flex, r_flex = left_res['max_flexion'], right_res['max_flexion']
+        l_ext, r_ext = left_res['max_extension'], right_res['max_extension']
+        
+        print(f"LEFT SHOULDER  - Flexion: {l_flex:.1f}°/{self.CLINICAL_NORM_FLEXION}° [{left_res['flexion_status']}] | Extension: {l_ext:.1f}°/{self.CLINICAL_NORM_EXTENSION}° [{left_res['extension_status']}]")
+        print(f"RIGHT SHOULDER - Flexion: {r_flex:.1f}°/{self.CLINICAL_NORM_FLEXION}° [{right_res['flexion_status']}] | Extension: {r_ext:.1f}°/{self.CLINICAL_NORM_EXTENSION}° [{right_res['extension_status']}]")
+        print("-"*65)
+        
+        # محاسبه درصد تقارن برای فلکشن و اکستنشن
+        max_flex_possible = max(l_flex, r_flex)
+        flex_symmetry = (1.0 - abs(l_flex - r_flex) / max_flex_possible) * 100 if max_flex_possible > 0 else 0.0
+        
+        max_ext_possible = max(l_ext, r_ext)
+        ext_symmetry = (1.0 - abs(l_ext - r_ext) / max_ext_possible) * 100 if max_ext_possible > 0 else 0.0
+        
+        print(f"Flexion (Forward) Symmetry Index:   {flex_symmetry:.1f}%")
+        print(f"Extension (Backward) Symmetry Index: {ext_symmetry:.1f}%")
+        print("-"*65)
+        print("CLINICAL EVALUATION & FEEDBACK:")
+        
+        if flex_symmetry >= 85.0 and ext_symmetry >= 85.0:
+            print(" [PASS] Excellent sagittal bilateral symmetry for both flexion and extension.")
+        else:
+            print(" [FLAG] WARNING: Asymmetry detected in sagittal shoulder mechanics!")
+            
+        print("="*65 + "\n")
